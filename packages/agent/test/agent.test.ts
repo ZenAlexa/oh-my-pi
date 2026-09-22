@@ -5,6 +5,7 @@ import type { SimpleStreamOptions, ToolResultMessage } from "@oh-my-pi/pi-ai";
 import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
 import { kCursorExecResolved } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { AssistantMessageEventStream } from "@oh-my-pi/pi-ai/utils/event-stream";
+import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { createAssistantMessage, createUserMessage } from "./helpers";
 
 describe("Agent", () => {
@@ -1437,6 +1438,20 @@ describe("Agent", () => {
 
 		expect(mock.calls[0]?.options?.sessionId).toBe("provider-lineage");
 		expect(mock.calls[0]?.options?.promptCacheKey).toBe("parent-cache");
+	});
+
+	it("enables explicit prompt caching from structured OpenAI compatibility metadata", async () => {
+		const model = getBundledModel("openai", "gpt-5.6");
+		if (!model) throw new Error("Expected bundled GPT-5.6 model");
+		const mock = createMockModel({ responses: [{ content: ["ok"] }] });
+		const agent = new Agent({ initialState: { model, messages: [] }, streamFn: mock.stream });
+
+		await agent.prompt("run");
+
+		expect(mock.calls[0]?.options?.promptCache).toEqual({
+			mode: "explicit",
+			breakpoint: "latest-stable-message",
+		});
 	});
 
 	it("forwards the live cwd from cwdResolver to the stream, overriding the static cwd", async () => {

@@ -161,7 +161,7 @@ export interface OpenAIResponsesOptions extends StreamOptions {
 	 * prompt_cache_key for prompt-cache routing).
 	 */
 	extraBody?: Record<string, unknown>;
-	/** Opt-in GPT-5.6+ prompt-cache policy. Unsupported explicit mode fails locally. */
+	/** Prompt-cache policy. Agent loop capability detection may supply explicit mode automatically. */
 	promptCache?: OpenAIPromptCacheOptions;
 }
 
@@ -1086,12 +1086,38 @@ function restoreResponsesCacheBreakpointsFromBaseline(
 
 function hasResponsesCacheBreakpoint(input: ResponseInput | undefined): boolean {
 	return (
-		input?.some(
-			message =>
+		input?.some(message => {
+			if (
+				message.type === "function_call_output" &&
+				Array.isArray(message.output) &&
+				message.output.some(block => block.prompt_cache_breakpoint !== undefined)
+			)
+				return true;
+			return (
 				isResponsesPromptCacheableMessage(message) &&
-				message.content.some(block => block.prompt_cache_breakpoint !== undefined),
-		) ?? false
+				message.content.some(block => block.prompt_cache_breakpoint !== undefined)
+			);
+		}) ?? false
 	);
+}
+
+function markLatestResponsesFunctionOutputBreakpoint(input: ResponseInput): boolean {
+	for (let i = input.length - 1; i >= 0; i--) {
+		const item = input[i];
+		if (item?.type !== "function_call_output") continue;
+		if (typeof item.output === "string") {
+			if (item.output.length === 0) continue;
+			item.output = [{ type: "input_text", text: item.output, prompt_cache_breakpoint: { mode: "explicit" } }];
+			return true;
+		}
+		for (let j = item.output.length - 1; j >= 0; j--) {
+			const block = item.output[j];
+			if (block.type !== "input_text" && block.type !== "input_image" && block.type !== "input_file") continue;
+			Object.assign(block, { prompt_cache_breakpoint: { mode: "explicit" } });
+			return true;
+		}
+	}
+	return false;
 }
 
 function markLatestStableResponsesCacheBreakpoint(
@@ -1108,6 +1134,7 @@ function markLatestStableResponsesCacheBreakpoint(
 		// Markerless baselines stay markerless so appends do not mutate them.
 		if (!hasResponsesCacheBreakpoint(statefulBaseline)) return false;
 	}
+	if (markLatestResponsesFunctionOutputBreakpoint(input)) return true;
 
 	let latestInputMessage = -1;
 	for (let i = input.length - 1; i >= 0; i--) {
