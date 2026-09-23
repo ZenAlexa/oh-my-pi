@@ -587,7 +587,7 @@ export interface OpenAICompletionsOptions extends StreamOptions {
 	 * with the variant baked in).
 	 */
 	openrouterVariant?: string;
-	/** Prompt-cache policy. Agent loop capability detection may supply explicit mode automatically. */
+	/** Prompt-cache policy. Explicit caching is opt-in. */
 	promptCache?: OpenAIPromptCacheOptions;
 }
 
