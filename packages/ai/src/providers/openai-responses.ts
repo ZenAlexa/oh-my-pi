@@ -1123,25 +1123,6 @@ function hasResponsesCacheBreakpoint(input: ResponseInput | undefined): boolean 
 	);
 }
 
-function markLatestResponsesFunctionOutputBreakpoint(input: ResponseInput): boolean {
-	for (let i = input.length - 1; i >= 0; i--) {
-		const item = input[i];
-		if (item?.type !== "function_call_output") continue;
-		if (typeof item.output === "string") {
-			if (item.output.length === 0) continue;
-			item.output = [{ type: "input_text", text: item.output, prompt_cache_breakpoint: { mode: "explicit" } }];
-			return true;
-		}
-		for (let j = item.output.length - 1; j >= 0; j--) {
-			const block = item.output[j];
-			if (block.type !== "input_text" && block.type !== "input_image" && block.type !== "input_file") continue;
-			Object.assign(block, { prompt_cache_breakpoint: { mode: "explicit" } });
-			return true;
-		}
-	}
-	return false;
-}
-
 function markLatestStableResponsesCacheBreakpoint(
 	input: ResponseInput | undefined,
 	statefulBaseline?: ResponseInput,
@@ -1156,7 +1137,6 @@ function markLatestStableResponsesCacheBreakpoint(
 		// Markerless baselines stay markerless so appends do not mutate them.
 		if (!hasResponsesCacheBreakpoint(statefulBaseline)) return false;
 	}
-	if (markLatestResponsesFunctionOutputBreakpoint(input)) return true;
 
 	let latestInputMessage = -1;
 	for (let i = input.length - 1; i >= 0; i--) {
@@ -1167,10 +1147,25 @@ function markLatestStableResponsesCacheBreakpoint(
 			break;
 		}
 	}
-	if (latestInputMessage <= 0) return false;
-
-	for (let i = latestInputMessage - 1; i >= 0; i--) {
+	for (let i = input.length - 1; i >= 0; i--) {
 		const message = input[i];
+		if (message.type === "function_call_output") {
+			if (typeof message.output === "string") {
+				if (message.output.length === 0) continue;
+				message.output = [
+					{ type: "input_text", text: message.output, prompt_cache_breakpoint: { mode: "explicit" } },
+				];
+				return true;
+			}
+			for (let j = message.output.length - 1; j >= 0; j--) {
+				const block = message.output[j];
+				if (!isResponsesPromptCacheableContentBlock(block)) continue;
+				Object.assign(block, { prompt_cache_breakpoint: { mode: "explicit" } });
+				return true;
+			}
+			continue;
+		}
+		if (i >= latestInputMessage) continue;
 		if (isStableStringResponsesInstruction(message)) {
 			const text = message.content;
 			Object.assign(message, {

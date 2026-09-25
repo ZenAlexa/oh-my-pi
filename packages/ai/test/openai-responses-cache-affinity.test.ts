@@ -450,7 +450,7 @@ describe("OpenAI Responses explicit prompt cache policy", () => {
 		]);
 	});
 
-	it("marks the latest function output as the stable boundary for a tool loop", () => {
+	it("advances the stable cache boundary from tool output through later dialogue", () => {
 		const assistant: AssistantMessage = {
 			role: "assistant",
 			content: [{ type: "toolCall", id: "call_read", name: "read", arguments: { path: "README.md" } }],
@@ -476,16 +476,17 @@ describe("OpenAI Responses explicit prompt cache policy", () => {
 			isError: false,
 			timestamp: 2,
 		};
+		const context: Context = {
+			messages: [
+				{ role: "user", content: "read README.md", timestamp: 0 },
+				assistant,
+				toolResult,
+				{ role: "user", content: "summarize it", timestamp: 3 },
+			],
+		};
 		const params = buildParams(
 			openAI56ResponsesModel,
-			{
-				messages: [
-					{ role: "user", content: "read README.md", timestamp: 0 },
-					assistant,
-					toolResult,
-					{ role: "user", content: "summarize it", timestamp: 3 },
-				],
-			},
+			context,
 			{ promptCache: { mode: "explicit" } },
 			undefined,
 		).params;
@@ -493,6 +494,24 @@ describe("OpenAI Responses explicit prompt cache policy", () => {
 		const output = params.input?.find(item => item.type === "function_call_output");
 		expect(output).toMatchObject({
 			output: [{ type: "input_text", text: "file contents", prompt_cache_breakpoint: { mode: "explicit" } }],
+		});
+
+		context.messages.push(
+			{ ...assistant, content: [{ type: "text", text: "summary" }], stopReason: "stop", timestamp: 4 },
+			{ role: "user", content: "explain the installation steps", timestamp: 5 },
+		);
+		const continued = buildParams(
+			openAI56ResponsesModel,
+			context,
+			{ promptCache: { mode: "explicit" }, statefulResponses: false },
+			undefined,
+		).params;
+		expect(continued.input?.find(item => item.type === "function_call_output")).toMatchObject({
+			output: "file contents",
+		});
+		expect(continued.input?.[3]).toMatchObject({
+			role: "user",
+			content: [{ type: "input_text", text: "summarize it", prompt_cache_breakpoint: { mode: "explicit" } }],
 		});
 	});
 
